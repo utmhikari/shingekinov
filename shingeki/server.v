@@ -194,7 +194,7 @@ fn handle(s net.Socket, server mut Server) {
 }
 
 pub fn server() Server {
-	instance := net.listen(0) or { panic(err) }
+	instance := net.listen(5000) or { panic(err) }
 	port := instance.get_port()
 	logger.info('Server is listening at 127.0.0.1:$port!')
 	mut clients := map[string]net.Socket
