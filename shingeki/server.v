@@ -2,6 +2,7 @@ module shingeki
 
 import net
 import log
+import sync
 
 const (
 	logger = log.Log{log.INFO, 'terminal'}
@@ -12,6 +13,7 @@ struct Server {
 mut:
 	clients 	map[string]net.Socket
 	pairs 		map[string]string
+	mtx 		sync.Mutex
 }
 
 fn (server mut Server) register(fd string, client net.Socket) {
@@ -61,7 +63,6 @@ fn (server mut Server) join_chat(fd string) {
 			server.pairs[fd] = ''
 		}
 	}
-	logger.info(server.list())
 }
 
 fn (server mut Server) leave_chat(fd string) {
@@ -82,20 +83,17 @@ fn (server mut Server) leave_chat(fd string) {
 		server.pairs.delete(fd)
 		client.write('You have left your chat~')
 	}
-	logger.info(server.list())
 }
 
 fn (server mut Server) handle_chat(fd string, msg string) {
-	if (fd in server.pairs) {
-		mut client := server.clients[fd]
-		partner_fd := server.pairs[fd]
-		if partner_fd.len > 0 {
-			message := '$fd: $msg'
-			mut partner_client := server.clients[partner_fd]
-			partner_client.write(message)
-		} else {
-			client.write('You are now chatting with air...sad~')
-		}
+	mut client := server.clients[fd]
+	partner_fd := server.pairs[fd]
+	if partner_fd.len > 0 {
+		message := '$fd: $msg'
+		mut partner_client := server.clients[partner_fd]
+		partner_client.write(message)
+	} else {
+		client.write('You are now chatting with air...sad~')
 	}
 }
 
@@ -103,7 +101,7 @@ fn (server mut Server) help() string {
 	return '\r\nShinGeKiNoV Commands:\r\n' +
 		'chat\ttry find someone to chat with\r\n' +
 		'list\tlist all clients\r\n' +
-		'exit\tdisconnect\r\n'
+		'exit\tdisconnect ShinGeKiNoV or quit chat\r\n'
 }
 
 fn (server mut Server) list() string {
@@ -139,12 +137,15 @@ fn handle(s net.Socket, server mut Server) {
 	fd := fdint.str()
 	logger.info('$fd connected!!!')
 	s.write('$fd: Welcome to ShinGeKiNoV Chat Platform~')
+	server.mtx.lock()
 	server.register(fd, s)
+	server.mtx.unlock()
 	for {
 		msg := s.read_line().replace('\r\n', '').replace('\n', '')
 		if msg.len > 0 {
 			logger.info('Received message size ${msg.len} from $fd: $msg')
 		}
+		server.mtx.lock()
 		if server.is_chatting(fd) {
 			match msg {
 				'' {
@@ -190,6 +191,7 @@ fn handle(s net.Socket, server mut Server) {
 				}
 			}
 		}
+		server.mtx.unlock()
 	}
 }
 
@@ -197,7 +199,8 @@ pub fn server() Server {
 	instance := net.listen(5000) or { panic(err) }
 	port := instance.get_port()
 	logger.info('Server is listening at 127.0.0.1:$port!')
+	mut mtx := sync.new_mutex()
 	mut clients := map[string]net.Socket
 	mut pairs := map[string]string
-	return Server{instance, clients, pairs}
+	return Server{instance, clients, pairs, mtx}
 }
